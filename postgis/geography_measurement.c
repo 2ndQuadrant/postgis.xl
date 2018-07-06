@@ -65,6 +65,8 @@ Datum geography_project(PG_FUNCTION_ARGS);
 Datum geography_azimuth(PG_FUNCTION_ARGS);
 Datum geography_segmentize(PG_FUNCTION_ARGS);
 
+/* This doesn't belong here, but it's not exported in the header file. */
+Datum gserialized_overlaps(PG_FUNCTION_ARGS);
 
 PG_FUNCTION_INFO_V1(geography_distance_knn);
 Datum geography_distance_knn(PG_FUNCTION_ARGS)
@@ -277,9 +279,12 @@ Datum geography_dwithin(PG_FUNCTION_ARGS)
 {
 	GSERIALIZED *g1 = NULL;
 	GSERIALIZED *g2 = NULL;
+	GSERIALIZED *g1c = NULL;
+	GSERIALIZED *g2c = NULL;
 	double tolerance = 0.0;
 	double distance;
 	bool use_spheroid = true;
+	bool check_overlap = false;
 	SPHEROID s;
 	int dwithin = LW_FALSE;
 
@@ -294,6 +299,55 @@ Datum geography_dwithin(PG_FUNCTION_ARGS)
 	/* Read our calculation type. */
 	if ( PG_NARGS() > 3 && ! PG_ARGISNULL(3) )
 		use_spheroid = PG_GETARG_BOOL(3);
+
+	/*
+	 * Check if overlap should be computed by us.
+	 *
+	 * This is a kludge put in place to ensure that Postgres-XL is not impacted
+	 * by a potential bug in the way geography type is converted into a string
+	 * representation, losing information about a previous expansion via
+	 * _ST_Expand() call. So instead of relying on SQL function to check
+	 * overlap, we do this here. Otherwise when the coordinator sends down the
+	 * preprocessed SQL function to the remote node, it may lose crucial
+	 * information on the way.
+	 */
+	if ( PG_NARGS() > 4 && ! PG_ARGISNULL(4) )
+		check_overlap = PG_GETARG_BOOL(4);
+
+	if (check_overlap)
+	{
+		g2c = (GSERIALIZED *) PG_DETOAST_DATUM(DirectFunctionCall2(
+								geography_expand,
+								PointerGetDatum(g2),
+								PG_GETARG_DATUM(2)));
+
+		if (!DatumGetBool(DirectFunctionCall2(gserialized_overlaps,
+						PointerGetDatum(g1), PointerGetDatum(g2c))))
+		{
+			PG_FREE_IF_COPY(g1, 0);
+			PG_FREE_IF_COPY(g2, 1);
+			if (g2c != g2)
+				pfree(g2c);
+			PG_RETURN_BOOL(FALSE);
+		}
+
+		g1c = (GSERIALIZED *) PG_DETOAST_DATUM(DirectFunctionCall2(
+								geography_expand,
+								PointerGetDatum(g1),
+								PG_GETARG_DATUM(2)));
+
+		if (!DatumGetBool(DirectFunctionCall2(gserialized_overlaps,
+						PointerGetDatum(g2), PointerGetDatum(g1c))))
+		{
+			PG_FREE_IF_COPY(g1, 0);
+			PG_FREE_IF_COPY(g2, 1);
+			if (g2c != g2)
+				pfree(g2c);
+			if (g1c != g1)
+				pfree(g1c);
+			PG_RETURN_BOOL(FALSE);
+		}
+	}
 
 	error_if_srid_mismatch(gserialized_get_srid(g1), gserialized_get_srid(g2));
 

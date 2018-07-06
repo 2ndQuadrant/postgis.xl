@@ -109,6 +109,7 @@ DROP FUNCTION IF EXISTS ST_AsGeoJson(int4, geography, int4, int4);
 
 DROP FUNCTION IF EXISTS _ST_Distance(geography, geography, float8, boolean);
 DROP FUNCTION IF EXISTS _ST_DWithin(geography, geography, float8, boolean);
+DROP FUNCTION IF EXISTS _ST_DWithin(geography, geography, float8, boolean, boolean);
 DROP FUNCTION IF EXISTS ST_Distance(geography, geography, boolean);
 DROP FUNCTION IF EXISTS ST_Distance(geography, geography);
 DROP FUNCTION IF EXISTS _ST_Expand(geography, float8);
